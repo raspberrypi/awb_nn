@@ -5,7 +5,7 @@ from pathlib import Path
 from converter import CalibratedDng, dng_to_rgb, rgb_to_input, estimate_lux
 import cv2
 import glob
-from data import raw_to_rgb
+from data import raw_to_rgb, apply_gamma
 import tensorflow as tf
 from train import MiredLoss, ClassesToTemp, PreprocessImage
 
@@ -50,6 +50,8 @@ if __name__ == "__main__":
             raw_to_rgb(image, dng.tuning, camera_temp, camera_gains),
             raw_to_rgb(image, dng.tuning, model_temp, model_gains),
         ]
+
+        images = list(map(lambda img: apply_gamma(img, dng.tuning), images))
 
         temps = [real_temp, camera_temp, model_temp]
         gains = [real_gains, camera_gains, model_gains]

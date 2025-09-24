@@ -13,7 +13,7 @@ Create a python virtual environment and install dependencies:
 
 ```bash
 python -m venv .venv --system-site-packages
-.venv/bin/pip install tensorflow opencv-python py3exiv2 rawpy
+.venv/bin/pip install tensorflow opencv-python py3exiv2 rawpy matplotlib
 ```
 
 ### Gathering data
