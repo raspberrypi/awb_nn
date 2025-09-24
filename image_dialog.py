@@ -137,7 +137,6 @@ class ImageDialog(QDialog):
         button_box = QDialogButtonBox()
         self.accept_button = button_box.addButton("Accept", QDialogButtonBox.AcceptRole)
         self.accept_button.clicked.connect(self.accept)
-        self.accept_button.setEnabled(False)  # Initially disabled
         cancel_button = button_box.addButton("Cancel", QDialogButtonBox.RejectRole)
         cancel_button.clicked.connect(self.on_cancel)
         button_layout.addWidget(button_box)

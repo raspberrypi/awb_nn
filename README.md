@@ -12,13 +12,14 @@ sudo apt install libexiv2-dev libboost-python-dev
 Create a python virtual environment and install dependencies:
 
 ```bash
-python -m venv .venv
+python -m venv .venv --system-site-packages
 .venv/bin/pip install tensorflow opencv-python py3exiv2 rawpy
 ```
 
 ### Gathering data
 
-To gather the raw images use `snapper.py` to gather images to train the model. Its basic usage is:
+To gather the raw images use `snapper.py` to gather images to train the model.
+It starts in fullscreen which works well with a display attached to the pi.
 
 ```bash
 python snapper.py --user <username> --output <output-directory>
@@ -26,6 +27,8 @@ python snapper.py --user <username> --output <output-directory>
 
 `snapper.py` needs to be run outside of the virtual envirnment.
 Run `python snapper.py --help` to see all the options.
+The `<username>` is only used to name the images so it could be used to sort the images into categories.
+For example, where they were taken.
 
 `snapper.py` will output images to the output directory as both JPEG and DNG files. The filenames will be formatted as `<username>,<sensor>,<id>.dng` and `<username>,<sensor>,<id>.jpg`. The id counts up from 0 by default so use `--initial-scene-id <id>` to prevent overwriting the old images.
 
@@ -55,12 +58,20 @@ The images then need to be converted to PNG files so that they can be loaded by 
 Use `converter.py` to convert the DNG files to PNG files. It outputs files in the format `<username>,<sensor>,<id>,<true_temperature>,<lux>,<camera_temperature>.dng`.
 `<true_temperature>` is the colour temperature it was labeled as and `<camera_temperature>` is what the camera predicted when it took the image. This is useful for comparing the results of the model.
 
-Usage:
+To check that the images have been colour balanced correctly, run:
+```bash
+python converter.py <input-dir> <output-dir> --resize 640,480 --colour-test
+```
+That will output the images colour balanced correctly to check them.
+These images are only for checking the colour balance and are not used later.
+
+Once the images have the correct colour balance, run
 ```bash
 python converter.py <input-dir> <output-dir> --split <split> --resize <width>,<height>
 ```
 
-- `--split` is how many of the images are moved to the test dataset and should be about 0.2.
+- `input-dir` is where the DNG files from annotator are located
+- `--split` is how many of the images are moved to the test dataset. 0.2 is a good choice and it must be specified to train the model.
 - `--resize` is optional but reduces file size and trains the model faster. It should be at least 32,32
 
 Run `python converter.py --help` to see all the options.
@@ -81,6 +92,15 @@ Pi 4 and older:
 ```bash
 python train.py <dataset> model_vc4.keras --model-size 32 --model-conv-layers 2 --early-stopping --reduce-lr --model-dropout 0.1 --image-size 16,12
 ```
+
+### Testing the model
+
+The output of the model can be tested on the DNG files:
+```bash
+python verify.py -i <image> --model <model>
+```
+
+The output of the model is displayed along with what the image was labelled as and the original estimate from the camera.
 
 ### Convert the model
 
