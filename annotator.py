@@ -19,13 +19,13 @@ from image_dialog import ImageDialog
 INPUT = os.path.join(os.path.expanduser("~"), "awb-images")
 
 class Annotator(QMainWindow):
-    def __init__(self, input=INPUT):
+    def __init__(self, input=INPUT, small_input=None):
         super().__init__()
         self.setWindowTitle("AWB Annotator")
         self.setGeometry(100, 100, 600, 900)
 
         self.input = input
-
+        self.small_input = small_input
         # Track processed files
         self.processed_files = set()
 
@@ -166,6 +166,16 @@ class Annotator(QMainWindow):
                 os.rename(image_path, new_image_path)
                 print(f"Renamed {image_path} to {new_image_path}")
 
+                if self.small_input:
+                    small_image_path = os.path.join(self.small_input, clean_filename)
+                    small_new_image_path = os.path.join(self.small_input, new_filename)
+                    try:
+                        os.rename(small_image_path, small_new_image_path)
+                    except FileNotFoundError:
+                        print(f"Small file {small_image_path} not found - the image and small images are out of sync")
+                    else:
+                        print(f"Renamed {small_image_path} to {small_new_image_path}")
+
                 self.load_files()
             else:
                 print(f"Annotation cancelled for {clean_filename}")
@@ -178,9 +188,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AWB Annotator')
     parser.add_argument('-i', '--input', type=str, default=INPUT,
                       help=f'Input directory containing images (default: {INPUT})')
+    parser.add_argument('-s', '--small-input', type=str, help='Input directory containing small DNG files')
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
-    window = Annotator(input=args.input)
+    window = Annotator(input=args.input, small_input=args.small_input)
     window.show()
     sys.exit(app.exec_())

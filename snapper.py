@@ -5,6 +5,7 @@ import sys
 import os
 import argparse
 import shutil
+import struct
 import numpy as np
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QLineEdit, QPushButton, QLabel, QFileDialog,
@@ -14,20 +15,34 @@ from PyQt5.QtGui import QPixmap, QWheelEvent, QPainter, QPalette, QPen, QColor, 
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer
 from picamera2 import Picamera2, Preview
 from picamera2.previews.qt import QGlPicamera2, QPicamera2
+from pidng.camdefs import Picamera2Camera
+from pidng.core import PICAM2DNG
+from pathlib import Path
 
 # You can override these here, if you wish, or on the command line.
 USER = ""
 OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "awb-captures")
 CAMERA = 0
 
+# PISP Constants
+PISP_AWB_STATS_SIZE = 32
+PISP_AWB_STATS_NUM_ZONES = PISP_AWB_STATS_SIZE * PISP_AWB_STATS_SIZE  # 1024
+PISP_CDAF_STATS_SIZE = 8
+PISP_CDAF_STATS_NUM_FOMS = PISP_CDAF_STATS_SIZE * PISP_CDAF_STATS_SIZE  # 64
+PISP_FLOATING_STATS_NUM_ZONES = 4
+PISP_AGC_STATS_NUM_BINS = 1024
+PISP_AGC_STATS_SIZE = 16
+PISP_AGC_STATS_NUM_ZONES = PISP_AGC_STATS_SIZE * PISP_AGC_STATS_SIZE  # 256
+PISP_AGC_STATS_NUM_ROW_SUMS = 512
+
 class Snapper(QMainWindow):
-    def __init__(self, user=USER, output_dir=OUTPUT_DIR, camera=CAMERA, ssh_mode=False, initial_scene_id=0):
+    def __init__(self, user=USER, output_dir=OUTPUT_DIR, camera=CAMERA, ssh_mode=False, initial_scene_id=0, small_output=None):
         super().__init__()
 
         self.output_dir = output_dir
         self.user = user
         self.scene_id = initial_scene_id  # Initialize scene ID counter with provided value
-
+        self.small_output = small_output
         self.configure_camera(camera)
 
         self.setWindowTitle("AWB Snapper")
@@ -129,7 +144,7 @@ class Snapper(QMainWindow):
         preview_config = self.picam2.create_preview_configuration(
             {'format': 'YUV420', 'size': preview_res},
             raw={'format': 'SBGGR12', 'size': half_res}, # force unpacked, full FOV
-            controls={'FrameRate': 30}
+            controls={'FrameRate': 30, 'StatsOutputEnable': 1}
         )
         self.picam2.configure(preview_config)
         if 'AfMode' in self.picam2.camera_controls:
@@ -162,9 +177,14 @@ class Snapper(QMainWindow):
             self.scene_id_label.setText(f"Scene Id: {self.scene_id:05d}")
         request.save('main', filename + ".jpg")
         request.save_dng(filename + ".dng")
+        if self.small_output:
+            small_filename = os.path.join(self.small_output, f"{self.user},{self.sensor},{self.scene_id:05d}")
+            save_stats_dng(request, small_filename + ".dng")
         print("Capture done", request)
         request.release()
         print("Files saved as", filename + ".jpg and", filename + ".dng")
+        if self.small_output:
+            print("Statistics file saved as", small_filename + ".dng")
 
         # Increment scene ID and update display
         self.scene_id += 1
@@ -175,12 +195,155 @@ class Snapper(QMainWindow):
         invalid_chars = '<>:"/\\|?*,\''
         return not any(char in invalid_chars for char in text)
 
+def decode_stats(stats):
+    """
+    Decode PISP statistics from binary data.
+
+    Args:
+        stats: Binary data containing PISP statistics
+
+    Returns:
+        dict: Decoded statistics with AWB, AGC, and CDAF data
+    """
+    # Convert to bytes if needed
+    if not isinstance(stats, bytes):
+        stats = bytes(stats)
+
+    offset = 0
+    result = {}
+
+    # Decode AWB statistics
+    awb_stats = {}
+
+    # AWB zones (32x32 = 1024 zones)
+    awb_zones = []
+    for i in range(PISP_AWB_STATS_NUM_ZONES):
+        if offset + 16 > len(stats):
+            raise Exception("Stats too short")
+        # pisp_awb_statistics_zone: R_sum, G_sum, B_sum, counted (4 x uint32)
+        r_sum, g_sum, b_sum, counted = struct.unpack_from("<IIII", stats, offset)
+        awb_zones.append({
+            "R_sum": r_sum,
+            "G_sum": g_sum,
+            "B_sum": b_sum,
+            "counted": counted
+        })
+        offset += 16
+
+    # AWB floating zones
+    awb_floating = []
+    for i in range(PISP_FLOATING_STATS_NUM_ZONES):
+        if offset + 16 > len(stats):
+            raise Exception("Stats too short")
+        r_sum, g_sum, b_sum, counted = struct.unpack_from("<IIII", stats, offset)
+        awb_floating.append({
+            "R_sum": r_sum,
+            "G_sum": g_sum,
+            "B_sum": b_sum,
+            "counted": counted
+        })
+        offset += 16
+
+    awb_stats["zones"] = awb_zones
+    awb_stats["floating"] = awb_floating
+    result["awb"] = awb_stats
+
+    # Decode AGC statistics
+    agc_stats = {}
+
+    # AGC row sums (uint32 array)
+    row_sums = []
+    for i in range(PISP_AGC_STATS_NUM_ROW_SUMS):
+        if offset + 4 > len(stats):
+            raise Exception("Stats too short")
+        row_sum = struct.unpack_from("<I", stats, offset)[0]
+        row_sums.append(row_sum)
+        offset += 4
+
+    # AGC histogram (uint32 array)
+    histogram = []
+    for i in range(PISP_AGC_STATS_NUM_BINS):
+        if offset + 4 > len(stats):
+            raise Exception("Stats too short")
+        bin_value = struct.unpack_from("<I", stats, offset)[0]
+        histogram.append(bin_value)
+        offset += 4
+
+    # AGC floating zones
+    agc_floating = []
+    for i in range(PISP_FLOATING_STATS_NUM_ZONES):
+        if offset + 16 > len(stats):
+            raise Exception("Stats too short")
+        # pisp_agc_statistics_zone: Y_sum (uint64), counted (uint32), pad (uint32)
+        y_sum = struct.unpack_from("<Q", stats, offset)[0]
+        offset += 8
+        counted, pad = struct.unpack_from("<II", stats, offset)
+        offset += 8
+        agc_floating.append({
+            "Y_sum": y_sum,
+            "counted": counted,
+            "pad": pad
+        })
+
+    agc_stats["row_sums"] = row_sums
+    agc_stats["histogram"] = histogram
+    agc_stats["floating"] = agc_floating
+    result["agc"] = agc_stats
+
+    # Decode CDAF statistics
+    cdaf_stats = {}
+
+    # CDAF foms (uint64 array)
+    foms = []
+    for i in range(PISP_CDAF_STATS_NUM_FOMS):
+        if offset + 8 > len(stats):
+            raise Exception("Stats too short")
+        fom = struct.unpack_from("<Q", stats, offset)[0]
+        foms.append(fom)
+        offset += 8
+
+    # CDAF floating (uint64 array)
+    cdaf_floating = []
+    for i in range(PISP_FLOATING_STATS_NUM_ZONES):
+        if offset + 8 > len(stats):
+            raise Exception("Stats too short")
+        floating_val = struct.unpack_from("<Q", stats, offset)[0]
+        cdaf_floating.append(floating_val)
+        offset += 8
+
+    cdaf_stats["foms"] = foms
+    cdaf_stats["floating"] = cdaf_floating
+    result["cdaf"] = cdaf_stats
+
+    return result
+
+def save_stats_dng(request, filename):
+    stats = decode_stats(request.get_metadata()["PispStatsOutput"])
+    zones = stats["awb"]["zones"]
+    zones = [(zone["R_sum"] / zone["counted"], zone["G_sum"] / zone["counted"], zone["B_sum"] / zone["counted"]) for zone in zones]
+    zones = np.array(zones)
+    zones = zones.reshape(32, 32, 3)
+    raw = np.zeros((64, 64), dtype=np.uint16)
+    raw[0::2, 0::2] = zones[:, :, 0]
+    raw[0::2, 1::2] = zones[:, :, 1]
+    raw[1::2, 0::2] = zones[:, :, 1]
+    raw[1::2, 1::2] = zones[:, :, 2]
+    raw += request.get_metadata()["SensorBlackLevels"][0]
+    config = {"format": "SRGGB16", "size": (64, 64), "stride": 64 * 2, "framesize": 64 * 64 * 2}
+    model = request.picam2.camera_properties.get("Model") or "PiCamera2"
+    camera = Picamera2Camera(config, request.get_metadata(), model)
+    r = PICAM2DNG(camera)
+    dng_compress_level = request.picam2.options.get("compress_level", 0)
+    r.options(compress=dng_compress_level)
+    r.convert(raw, filename)
+
 
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='AWB-O-Matic Tool')
     parser.add_argument('-u', '--user', help='Set the user name for saved images')
     parser.add_argument('-o', '--output', help='Override the output directory')
+    parser.add_argument('--small-output', type=Path, help='Save the AWB statistics as a small DNG file in this directory (Only works on Pi 5)')
     parser.add_argument('--initial-scene-id', type=int, default=0, help='Initial scene ID value (default: 0)')
     ssh_group = parser.add_mutually_exclusive_group()
     ssh_group.add_argument('-s', '--ssh', action='store_true', help='Enable SSH mode')
@@ -220,12 +383,15 @@ if __name__ == '__main__':
 
     # Create directories if they don't exist
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    if args.small_output:
+        os.makedirs(args.small_output, exist_ok=True)
 
     print(f"User: {USER}")
     print(f"Output directory: {OUTPUT_DIR}")
     print(f"SSH mode: {ssh_mode}")
+    print(f"Stats output directory: {args.small_output}")
 
     app = QApplication(sys.argv)
-    window = Snapper(user=USER, output_dir=OUTPUT_DIR, ssh_mode=ssh_mode, initial_scene_id=args.initial_scene_id)
+    window = Snapper(user=USER, output_dir=OUTPUT_DIR, ssh_mode=ssh_mode, initial_scene_id=args.initial_scene_id, small_output=args.small_output)
     window.show()
     sys.exit(app.exec_())
