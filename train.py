@@ -17,7 +17,7 @@ class MiredLoss(tf.keras.losses.Loss):
         super().__init__(**kwargs)
 
     def call(self, y_true, y_pred):
-        return tf.reduce_mean(tf.abs(1000 / y_pred - 1000 / y_true))
+        return tf.reduce_mean(tf.square(1000000 / y_pred - 1000000 / y_true)) / 1000
 
 @tf.keras.utils.register_keras_serializable(name="ClassesToTemp")
 class ClassesToTemp(tf.keras.layers.Layer):
@@ -119,25 +119,36 @@ def train_model(model: tf.keras.Model,
         epochs (int): The number of epochs to train for.
     """
     callbacks = []
+    checkpoint_filepath = "best_model.weights.h5"
+    callbacks.append(tf.keras.callbacks.ModelCheckpoint(
+        filepath=checkpoint_filepath,
+        monitor="loss",
+        mode="min",
+        save_best_only=True,
+        save_weights_only=True,
+        verbose=1
+        ))
     if early_stopping:
         callbacks.append(tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
+            monitor="loss",
             mode="min",
-            patience=10,
+            patience=25,
             restore_best_weights=True,
+            start_from_epoch=10
         ))
     if reduce_lr:
         callbacks.append(tf.keras.callbacks.ReduceLROnPlateau(
-            monitor="val_loss",
+            monitor="loss",
             mode="min",
             factor=0.5,
-            patience=3,
-            min_lr=1e-6,
+            patience=10,
+            min_lr=1e-7,
         ))
     if log_dir is not None:
         callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=log_dir))
 
     model.fit(trains_ds, validation_data=val_ds, epochs=epochs, callbacks=callbacks)
+    model.load_weights(checkpoint_filepath)
 
 
 if __name__ == "__main__":
@@ -154,6 +165,8 @@ if __name__ == "__main__":
     parser.add_argument("--early-stopping", action="store_true", help="Stop training early if the validation loss does not improve", default=False)
     parser.add_argument("--reduce-lr", action="store_true", help="Reduce learning rate during training if the loss stops improving", default=False)
     parser.add_argument("--image-size", type=str, help="The shape of the input images", default="32,32")
+    parser.add_argument("--lr", type=float, help="Initial learning rate", default=1e-3)
+    parser.add_argument("--duplicate-file", type=Path, help="File listing images to duplicate in the training set")
     args = parser.parse_args()
 
     try:
@@ -165,7 +178,8 @@ if __name__ == "__main__":
         raise argparse.ArgumentError("Input shape must be a pair of integers in the format WIDTH,HEIGHT")
 
     log_dir = args.log_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
-    trains_ds, val_ds = create_dataset_pair(args.dataset_dir, image_shape, batch_size=args.batch_size)
+    trains_ds, val_ds = create_dataset_pair(args.dataset_dir, image_shape, batch_size=args.batch_size,
+                                            duplicate_file=args.duplicate_file)
 
     if args.input_model is not None:
         model = tf.keras.models.load_model(args.input_model, custom_objects={
@@ -175,6 +189,9 @@ if __name__ == "__main__":
         })
     else:
         model = create_model(args.model_size, args.model_dropout, input_shape=image_shape, conv_layers=args.model_conv_layers)
+
+    model.optimizer.learning_rate.assign(args.lr)
+
 
     model.summary()
     train_model(
