@@ -68,8 +68,8 @@ def resize(input_path: Path, output_dir: Path, size: int) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Resize DNG files")
-    parser.add_argument("source_dir", type=Path)
-    parser.add_argument("destination_dir", type=Path)
+    parser.add_argument("source_dir", type=str)
+    parser.add_argument("destination_dir", type=str)
     parser.add_argument("--size", type=int, default=32)
     args = parser.parse_args()
 
