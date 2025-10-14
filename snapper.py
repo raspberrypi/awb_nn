@@ -56,6 +56,8 @@ class Snapper(QMainWindow):
         # Add EV control buttons
         self.ev_value = 0
         ev_button_layout = QHBoxLayout()
+        self.ct = 0
+        self.lux = 0
 
         self.capture_button = QPushButton("Capture")
         self.capture_button.setStyleSheet("""
@@ -92,6 +94,12 @@ class Snapper(QMainWindow):
         self.ev_value_label = QLabel(f"EV: {self.ev_value}")
         ev_button_layout.addWidget(self.ev_value_label)
 
+        self.ct_label = QLabel(f"CT: {self.ct}")
+        ev_button_layout.addWidget(self.ct_label)
+
+        self.lux_label = QLabel(f"Lux: {self.lux}")
+        ev_button_layout.addWidget(self.lux_label)
+
         layout.addLayout(ev_button_layout)
 
         hbox_layout = QHBoxLayout()
@@ -126,7 +134,15 @@ class Snapper(QMainWindow):
         layout.addWidget(self.qpicamera2)
 
         self.picam2.start()
+        self.picam2.pre_callback = self.pre_callback
         self.showMaximized()
+
+    def pre_callback(self, request):
+        metadata = request.get_metadata()
+        self.ct = metadata["ColourTemperature"]
+        self.ct_label.setText(f"CT: {self.ct}")
+        self.lux = round(metadata["Lux"], 0)
+        self.lux_label.setText(f"Lux: {self.lux:>5}")
 
     def configure_camera(self, camera):
         self.picam2 = Picamera2(camera)
@@ -318,7 +334,11 @@ def decode_stats(stats):
     return result
 
 def save_stats_dng(request, filename):
-    stats = decode_stats(request.get_metadata()["PispStatsOutput"])
+    stats_output = request.get_metadata().get("PispStatsOutput")
+    if stats_output is None:
+        print("No hardware stats - not writing small image")
+        return
+    stats = decode_stats(stats_output)
     zones = stats["awb"]["zones"]
     zones = [(zone["R_sum"] / zone["counted"], zone["G_sum"] / zone["counted"], zone["B_sum"] / zone["counted"]) for zone in zones]
     zones = np.array(zones)

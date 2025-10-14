@@ -42,7 +42,8 @@ def lsc(rgb: np.ndarray, tunings: Tuning, temp: float) -> np.ndarray:
     tables = tunings.get_lsc_tables(temp)
     rgb2 = np.zeros_like(rgb)
     for i in range(3):
-        rgb2[:, :, i] = rgb[:, :, i] * cv2.resize(tables[i], (rgb.shape[1], rgb.shape[0]))
+        table = cv2.resize(tables[i], (rgb.shape[1], rgb.shape[0]))
+        rgb2[:, :, i] = rgb[:, :, i] * table
     return rgb2
 
 def gains_search(rgb: np.ndarray, tunings: Tuning, temp: float, tangent_search: bool = False) -> tuple[np.ndarray | None, np.ndarray | None]:

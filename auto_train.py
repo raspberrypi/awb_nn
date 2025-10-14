@@ -52,9 +52,11 @@ def train_and_get_errors(input_model, dataset, output_model, verification_file, 
 def auto_train(input_model, dataset, duplicate_file, output_dir, weight, iterations, early_stopping, target):
     verification_name = "verification"
     verification_file = f"{verification_name}.txt"
-    output_model = "model.keras"
+    output_name = "model"
+    output_model = f"{output_name}.keras"
     best_worst = 999999
     stopping_number = 0
+    duplicate_name = os.path.splitext(duplicate_file)[0]
 
     for i in range(iterations):
         print("-" * 40)
@@ -67,15 +69,15 @@ def auto_train(input_model, dataset, duplicate_file, output_dir, weight, iterati
         else:
             stopping_number += 1
             if stopping_number >= early_stopping:
-                print("    Failure to progress - stopping")
+                print("Failure to progress - stopping")
                 return best_worst
 
         input_model = output_model  # after first iteration, re-read the most recent output
         average = round(average, 4)
         print("    Saving results for: worst", worst, "average", average)
         average = str(average).replace('.', 'p')
-        shutil.copy(output_model, f"{output_dir}/{output_model}_{worst}_{average}_{i}.keras")
-        shutil.copy(duplicate_file, f"{output_dir}/{duplicate_file}_{worst}_{average}_{i}.txt")
+        shutil.copy(output_model, f"{output_dir}/{output_name}_{worst}_{average}_{i}.keras")
+        shutil.copy(duplicate_file, f"{output_dir}/{duplicate_name}_{worst}_{average}_{i}.txt")
         shutil.copy(verification_file, f"{output_dir}/{verification_name}_{worst}_{average}_{i}.txt")
         file = file.split('/')[-1]
         file = file.split(',')[:3]
@@ -96,7 +98,7 @@ if __name__ == "__main__":
     parser.add_argument("-w", "--weight", type=int, help="Number of extra times to include difficult images", default=4)
     parser.add_argument("--early-stopping", type=int, help="Stop after this many iterations with no improvement", default=10)
     parser.add_argument("--clear-duplicates", action="store_true", help="Clear duplicates file", default=False)
-    parser.add_argument("-t", "--target", type=str, help="Target platform, either PISP or VC4")
+    parser.add_argument("-t", "--target", type=str, help="Target platform, either PISP or VC4", required=True)
     args = parser.parse_args()
 
     if not args.target:

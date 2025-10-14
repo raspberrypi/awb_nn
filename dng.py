@@ -21,7 +21,7 @@ class Dng:
     The raw image can be saved to a new DNG file, and/or converted to an RGB image.
     """
 
-    def __init__(self, dng_filename: str, tuning = None, sensor = None) -> None:
+    def __init__(self, dng_filename: str, target: str, tuning = None, sensor = None) -> None:
         """
         Initialize Dng object by loading a DNG file. Optionally, a Tuning object can be provided, otherwise it
         will be loaded from the DNG filename.
@@ -52,7 +52,7 @@ class Dng:
         if tuning:
             self.tuning = tuning
         else:
-            tuning_file = Tuning.find(self.model)
+            tuning_file = Tuning.find(self.model, target.lower())
             self.tuning = Tuning.load(tuning_file)
 
         self.raw_array_backup = self.raw_array.copy()

@@ -23,7 +23,7 @@ else:
 
 
 class CalibratedDng:
-    def __init__(self, dng_filename: str, tuning = None, sensor = None) -> None:
+    def __init__(self, dng_filename: str, target: str, tuning = None, sensor = None) -> None:
         """
         Initialize Dng object by loading a DNG file. Optionally, a Tuning object can be provided, otherwise it
         will be loaded from the DNG filename.
@@ -68,8 +68,9 @@ class CalibratedDng:
         if tuning:
             self.tuning = tuning
         else:
-            tuning_file = Tuning.find(self.model)
+            tuning_file = Tuning.find(self.model, target.lower())
             self.tuning = Tuning.load(tuning_file)
+            print("Loaded tuning file", tuning_file)
 
         if len(self.dng_filename.stem.split(",")) == 7:
             _, _, _, x1, y1, x2, y2 = self.dng_filename.stem.split(",")
@@ -198,9 +199,12 @@ class CalibratedDng:
         lsc_tables = [r_table, g_table, b_table, g_table]
         for component in range(4):
             offsets = self.raw_offsets[component][0], self.raw_offsets[component][1]
-            raw_image[offsets[0]::2, offsets[1]::2] *= cv2.resize(lsc_tables[component], half_res)
+            table = cv2.resize(lsc_tables[component], half_res)
+            raw_image[offsets[0]::2, offsets[1]::2] *= cv2.resize(table, half_res)
 
-        self.raw_array[...] = (raw_image + self.black_level).clip(0, self.white_level).astype(np.uint16)
+        # Don't add back the black level here, it just loses us a bit of headroom for the LSC gains,
+        # and we don't do it in the hardware.
+        self.raw_array[...] = raw_image.clip(0, self.white_level).astype(np.uint16)
 
     def convert(self, colour_gains=None, gamma=None, median_filter_passes=1, output_bps=8) -> np.ndarray:
         """
@@ -312,11 +316,12 @@ def estimate_lux(rgb: np.ndarray, dng: CalibratedDng) -> float:
     Returns:
         float: The estimated lux.
     """
-    Y = np.mean(rgb * np.array([0.299, 0.587, 0.114]) * 3)
+    colour_gains = 1 / dng.red_blue()[0], 1 / dng.red_blue()[1]
+    Y = np.mean(rgb * np.array([0.299 * colour_gains[0], 0.587, 0.114 * colour_gains[1]]) * 3)
     lux = dng.tuning.calculate_lux(Y, dng.gain, dng.aperture, dng.shutter_speed)
     return lux
 
-def dng_to_rgb(dng: CalibratedDng) -> np.ndarray:
+def dng_to_rgb(dng: CalibratedDng, black_level: bool = True) -> np.ndarray:
     """
     Convert a DNG to an RGB by stacking the channels and applying the black and white levels.
 
@@ -329,7 +334,8 @@ def dng_to_rgb(dng: CalibratedDng) -> np.ndarray:
     channels = [dng.raw_array[offset[0]::2, offset[1]::2].astype(np.float64) for offset in dng.raw_offsets]
     channels[1] = (channels[1] + channels[3]) / 2
     rgb = np.stack(channels[:3], axis=2)
-    rgb -= dng.black_level
+    if black_level:
+        rgb -= dng.black_level
     rgb = rgb / dng.white_level
     rgb = rgb.clip(0, 1)
     return (rgb * 65535).astype(np.uint16)
@@ -356,6 +362,7 @@ def rgb_to_input(rgb: np.ndarray, tunings: Tuning, lux: float) -> np.ndarray:
 def process_folder(
         dng_folder: Path,
         output_folder: Path,
+        target: str,
         resize: tuple[int, int] | None = None,
         split: float | None = None,
         colour_test: bool = True,
@@ -394,14 +401,24 @@ def process_folder(
         for filename in filenames:
             if filename.endswith(".dng"):
                 try:
-                    dng = CalibratedDng(str(Path(dirpath) / filename))
-                    rgb = dng_to_rgb(dng)
+                    dng = CalibratedDng(str(Path(dirpath) / filename), target)
                     temp = dng.calculate_colour_temp()
-                    dng.do_lsc(temp)
-                    lux = estimate_lux(rgb, dng)
+                    # Apply LSC before estimating lux on VC4 platforms
+                    if target == "VC4":
+                        backup = dng.raw_array.copy()
+                        dng.do_lsc(temp)
+                        rgb = dng_to_rgb(dng, black_level=False)
+                        lux = estimate_lux(rgb, dng)
+                        # But we'll undo the LSC as raw_to_rgb will re-apply it for the correct
+                        # colour temp (5000K)
+                        dng.raw_array[...] = backup
+                        rgb = dng_to_rgb(dng, black_level=True)
+                    else:
+                        rgb = dng_to_rgb(dng, black_level=True)
+                        lux = estimate_lux(rgb, dng)
                     if resize is not None:
                         rgb = cv2.resize(rgb, resize, interpolation=cv2.INTER_AREA)
-
+                        
                     if colour_test:
                         rgb = raw_to_rgb(rgb, dng.tuning, temp, gains=dng.gains())
                         rgb = apply_gamma(rgb, dng.tuning)
@@ -422,6 +439,9 @@ def process_folder(
                         output_path = train_folder / new_filename
                     else:
                         output_path = output_folder / new_filename
+
+                    check = ((rgb.astype(np.float32) * 1000 / 65535).astype(np.int32)).astype(np.float32) / 1000
+
                     save(output_path, rgb, overwrite=True)
                     print(f"Saved {output_path}")
                 except Exception as e:
@@ -445,9 +465,14 @@ if __name__ == "__main__":
         metavar="output-dir"
     )
     parser.add_argument(
+        "-t", "--target",
+        type=str,
+        help="Target platform, either PISP or VC4",
+        required=True
+        )
+    parser.add_argument(
         "--resize",
         type=str,
-        default="32,32",
         help="The size to resize the images to"
     )
     parser.add_argument(
@@ -457,17 +482,26 @@ if __name__ == "__main__":
     )
     parser.add_argument("--split",
         type=float,
+        default=0,
         help="The proportion of image to use for testing (0-1). \
             If not specified, all images will be saved to the output folder."
     )
 
     args = parser.parse_args()
 
-    resize = tuple(int(x) for x in args.resize.split(","))
-    if len(resize) != 2:
-        raise argparse.ArgumentError("Resize must be a pair of integers in the format WIDTH,HEIGHT")
+    target = args.target.upper()
+    if target not in ("VC4", "PISP"):
+        raise ValueError(f"Target {args.target} not recognised - use one of VC4 or PISP")
+
+    if args.resize is None:
+        resize = (16, 12) if target == "VC4" else (32, 32)
+        print("Chosen size", resize, "for platform", target)
+    else:
+        resize = tuple(int(x) for x in args.resize.split(","))
+        if len(resize) != 2:
+            raise argparse.ArgumentError("Resize must be a pair of integers in the format WIDTH,HEIGHT")
 
     if args.split is not None and (args.split < 0 or args.split > 1):
         raise argparse.ArgumentError("Split must be between 0 and 1")
 
-    process_folder(args.input_dir, args.output_dir, resize, args.split, args.colour_test)
+    process_folder(args.input_dir, args.output_dir, target, resize, args.split, args.colour_test)

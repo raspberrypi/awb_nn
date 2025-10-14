@@ -30,6 +30,7 @@ if __name__ == "__main__":
         "ClassesToTemp": ClassesToTemp,
         "PreprocessImage": PreprocessImage
     })
+    model.summary()
 
     results = []
     for filename in args.dataset.rglob("*.png"):

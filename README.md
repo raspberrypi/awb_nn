@@ -58,40 +58,55 @@ The images then need to be converted to PNG files so that they can be loaded by 
 Use `converter.py` to convert the DNG files to PNG files. It outputs files in the format `<username>,<sensor>,<id>,<true_temperature>,<lux>,<camera_temperature>.dng`.
 `<true_temperature>` is the colour temperature it was labeled as and `<camera_temperature>` is what the camera predicted when it took the image. This is useful for comparing the results of the model.
 
-To check that the images have been colour balanced correctly, run:
+To convert the images into a dataset that can be used for training, use
 ```bash
-python converter.py <input-dir> <output-dir> --resize 640,480 --colour-test
+python converter.py <input-dir> <output-dir> --split <split> --target <target>
 ```
-That will output the images colour balanced correctly to check them.
-These images are only for checking the colour balance and are not used later.
+where
 
-Once the images have the correct colour balance, run
-```bash
-python converter.py <input-dir> <output-dir> --split <split> --resize <width>,<height>
-```
-
-- `input-dir` is where the DNG files from annotator are located
-- `--split` is how many of the images are moved to the test dataset. 0.2 is a good choice and it must be specified to train the model.
-- `--resize` is optional but reduces file size and trains the model faster. It should be at least 32,32
+- `input-dir` is where the DNG files from annotator are located.
+- `output-dir` is the folder for the new dataset that can be used for training.
+- `--split` is proportion of images that are moved to the test dataset. We have found that if you don't have that many images (and in this context 1000 counts as "not that many") a value of zero often works best. The reason is that you otherwise risk having images in the test set that can't be improved because there are no others that are similar enough in the training set. Obviously you will need to proceed carefully here and test the final networks thoroughly.
+- `--target` should be either `vc4` (Pi 4 and older models) or `pisp` (Pi 5 and newer models). You will need to generate a separate dataset for each of the two platforms. The datasets are very much smaller than the image folders they are created from.
 
 Run `python converter.py --help` to see all the options.
 
 ### Training the model
 
-The Pi 5 has more AWB zones than other Pis so its model needs to be trained separately.
-It takes a few minutes to train the model on a Pi 5.
-The training will stop early if it stops improving.
-Run `python train.py --help` to see what all the options do.
+The best way to train the model is to use the `auto_train.py` script. You will need to run it once for the VC4 (Pi 4 and older) platform, and once for the PiSP (Pi 5) platform. This script runs the training procedure a number of times, on each occasion biasing the training towards images that have been showing the worst case errors. It could take typically about an hour to run on a Pi 5, and it can make sense to repeat the training multiple times if you have time.
 
-Pi 5:
+To train a model, use
 ```bash
-python train.py <dataset> model_pisp.keras --model-size 16 --early-stopping --reduce-lr --model-dropout 0.1 --image-size 32,32
+python auto_train.py <dataset> <output-dir> --target <target> [--duplicate-file <duplicate-file>] [--clear-duplicates]
 ```
+where
 
-Pi 4 and older:
-```bash
-python train.py <dataset> model_vc4.keras --model-size 32 --model-conv-layers 2 --early-stopping --reduce-lr --model-dropout 0.1 --image-size 16,12
+- `<dataset>` is the dataset to use for training. Be sure to use a dataset created for the chosen target platform.
+- `<output-dir>` is a folder where the results of each incremental training are written.
+- `--target` lists the target platform, either `vc4` or `pisp`, and which should match your dataset.
+- `--duplicate-file` names the file listing how many times particular images were re-used in training. The file format is the filename, followed by the count value. It should be sufficient just to list the start of the image name, consisting of the `<user>,<sensor>,<id>` part. The default filename is `duplicates.txt`.
+- `--clear-duplicates` instructs the script to clear the duplicates file when it starts, otherwise you can use your own duplicates file when you start the training process.
+- `--input-model` names a model as a starting point for incremental training. Otherwise, training starts from scratch.
+
+`auto_train.py` runs the training multiple times. Each run generates three output files - a "verification" file (listing every image and its associated error, sorted from worst to best), a "duplicates" file (listing the images repeated more than once in the training) and a "model" file (the Keras model at the end of the training run). These files are all named with the worst error, average error, and run sequence number in the filename, separated by underscores. For example, the file
 ```
+model_12_2p6003_31.keras
+```
+has a worst case error of 12, an average error of 2.6003 and was produced after training run 31.
+
+The "verification" file in particular is useful for checking whether particular images were performing poorly or not.
+
+Example:
+```bash
+python auto_train.py pisp-dataset pisp-output-0 --clear-duplicates --target pisp
+```
+will use the folder `pisp-dataset` for training, and write all the results to `pisp-output-0`. The duplicates file will be cleared when it starts, and it will train from scratch. It is training for the PiSP (Pi 5) platform.
+
+#### Using your own Training Images
+
+If you have your own images, you can annotate and convert them to a dataset as described above. You can train a network entirely on your own images, or you can add them to our datasets. As the performance on your own images may be particularly important, you may wish to create a duplicates file listing them (and avoid using the `--clear-duplicates` flag when you start training).
+
+You can train from scratch, or incrementally from a previous model (using the `--input-model` parameter).
 
 ### Testing the model
 

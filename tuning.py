@@ -210,7 +210,7 @@ class Tuning:
     SEARCH_PATH = [Path("."), Path(__file__).resolve().parent / "tunings"]
 
     @staticmethod
-    def find(sensor : str) -> Union[str, Path]:
+    def find(sensor : str, target : str) -> Union[str, Path]:
         """
         Find the tuning for a given sensor, checking the folders listed in SEARCH_PATH.
 
@@ -221,11 +221,11 @@ class Tuning:
             Union[str, Path]: Path to the tuning file
         """
         for path in Tuning.SEARCH_PATH:
-            tuning_file = path / f"{sensor}.json"
+            tuning_file = path / target / f"{sensor}.json"
             if tuning_file.exists():
                 return tuning_file
 
-        raise FileNotFoundError(f"Tuning file for {sensor} not found")
+        raise FileNotFoundError(f"Tuning file for {sensor} on platform {target} not found")
 
     def get_algorithm(self, name: str) -> Dict[str, Any]:
         """
@@ -294,16 +294,23 @@ class Tuning:
         """
         Interpolate a table for a given colour temperature.
         """
+        table_len = len(tables[0]["table"])
+        if table_len == 1024:
+            size = (32, 32)  # PiSP
+        elif table_len == 192:
+            size = (12, 16)  # VC4
+        else:
+            raise(RuntimeError("Bad LSC table size"))
         if colour_temp <= tables[0]["ct"]:
-            return np.array(tables[0]["table"]).reshape(32, 32)
+            return np.array(tables[0]["table"]).reshape(*size)
         elif colour_temp >= tables[-1]["ct"]:
-            return np.array(tables[-1]["table"]).reshape(32, 32)
+            return np.array(tables[-1]["table"]).reshape(*size)
 
         # Find the two tables that bracket the given colour temperature
         for table, next_table in zip(tables[:-1], tables[1:]):
             if table["ct"] <= colour_temp and next_table["ct"] >= colour_temp:
                 alpha = (colour_temp - table["ct"]) / (next_table["ct"] - table["ct"])
-                return (alpha * np.array(next_table["table"]) + (1 - alpha) * np.array(table["table"])).reshape(32, 32)
+                return (alpha * np.array(next_table["table"]) + (1 - alpha) * np.array(table["table"])).reshape(*size)
 
         raise RuntimeError("Internal error: failed to interpolate LSC tables - should not happen")
 
@@ -320,7 +327,13 @@ class Tuning:
         lsc_config = self.get_algorithm("alsc")
         cr_table = Tuning._interpolate_table(colour_temp, lsc_config["calibrations_Cr"])
         cb_table = Tuning._interpolate_table(colour_temp, lsc_config["calibrations_Cb"])
-        luminance_table = np.array(lsc_config["luminance_lut"]).reshape(32, 32)
+        luminance_table = np.array(lsc_config["luminance_lut"])
+        if luminance_table.shape == (1024,):
+            luminance_table = luminance_table.reshape(32, 32)  # PiSP
+        elif luminance_table.shape == (192,):
+            luminance_table = luminance_table.reshape(12, 16)  # VC4
+        else:
+            raise(ValueError("Unexpected LSC table size"))
         luminance_strength = lsc_config.get("luminance_strength", 1.0)
         luminance_table = (luminance_table - 1.0) * luminance_strength + 1.0
 
@@ -415,8 +428,6 @@ class Tuning:
                * (self.get_reference_aperture() / aperture)
                * (self.get_reference_shutter_speed() / shutter_speed)
                * (self.get_reference_gain() / gain))
-
-        #print(f"Lux: {lux}, reference lux: {self.get_reference_lux()}")
 
         return lux
 

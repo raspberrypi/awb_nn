@@ -72,10 +72,30 @@ def classes_to_temp(classes: tf.Tensor) -> tf.Tensor:
     return tf.reduce_sum(weighted, axis=1) / total_weight
 
 
+@tf.keras.utils.register_keras_serializable(name="AddUniformNoise")
+class AddUniformNoise(keras.layers.Layer):
+    def __init__(self, minval=-0.1, maxval=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.minval = minval
+        self.maxval = maxval
+
+    def call(self, inputs, training=None):
+        if training:
+            noise = tf.random.uniform(
+                shape = tf.shape(inputs),
+                minval=self.minval,
+                maxval=self.maxval
+                )
+            return inputs + inputs * noise
+        return inputs
+
+
 def create_model(size: int, dropout: float | None = None, input_shape: tuple[int, int] = (32, 32), conv_layers: int = 3) -> keras.Model:
     inp = keras.layers.Input(shape=input_shape + (3,))
     lux = keras.layers.Input(shape=())
-    x = PreprocessImage()(inp, lux)
+    inp_w_noise = AddUniformNoise(minval=-0.1, maxval=0.1)(inp)
+    lux_w_noise = AddUniformNoise(minval=-0.2, maxval=0.2)(lux)
+    x = PreprocessImage()(inp_w_noise, lux_w_noise)
     x = keras.layers.RandomFlip("horizontal")(x)
     x = keras.layers.RandomRotation(0.1)(x)
     x = keras.layers.RandomZoom(0.1)(x)

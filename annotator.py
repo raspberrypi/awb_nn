@@ -126,7 +126,8 @@ class Annotator(QMainWindow):
             # Construct full path to the image
             image_path = os.path.join(self.input, clean_filename)
 
-            dng = Dng(image_path, sensor=parts[1])
+            # The target should hopefully not make any real difference here.
+            dng = Dng(image_path, "pisp", sensor=parts[1])
             print("Camera white balance:", dng.camera_white_balance)
             colour_gains = np.array(dng.camera_white_balance)[[0, 2]]
 
@@ -155,8 +156,8 @@ class Annotator(QMainWindow):
                 # Add file to processed set
                 self.processed_files.add(unannotated_filename)
 
-                red_gain = dialog.colour_gains[0]
-                blue_gain = dialog.colour_gains[1]
+                red_gain = round(dialog.colour_gains[0], 3)
+                blue_gain = round(dialog.colour_gains[1], 3)
                 print(f"Annotating file with gains: red {red_gain} blue {blue_gain}")
 
                 new_filename = unannotated_filename.replace(".dng", f",{red_gain},{blue_gain}.dng")
