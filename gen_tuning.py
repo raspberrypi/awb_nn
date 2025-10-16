@@ -14,13 +14,14 @@ if __name__ == "__main__":
     parser.add_argument("--sensor", type=str, help="The sensor to generate the tuning for", required=True)
     parser.add_argument("--model", type=str, help="The model to use for the tuning", required=False)
     parser.add_argument("--output", type=str, help="The output file to save the tuning to", required=False)
-    parser.add_argument("--isp", type=str, help="The ISP to use for the tuning. pisp for Pi 5, vc4 for other Pis", required=False, choices=["pisp", "vc4"], default="pisp")
+    parser.add_argument("-t", "--target", type=str, help="The target platform. Use pisp for Pi 5, vc4 for other Pis", required=True, choices=["pisp", "PISP", "vc4", "VC4"])
     args = parser.parse_args()
 
     output = args.output if args.output else args.sensor + ".json"
 
+    target = args.target.lower()
     for path in search_path:
-        tuning_file = path / Path(f"libcamera/ipa/rpi/{args.isp}") / f"{args.sensor}.json"
+        tuning_file = path / Path(f"libcamera/ipa/rpi/{target}") / f"{args.sensor}.json"
         if tuning_file.exists():
             break
     else:
@@ -55,9 +56,9 @@ if __name__ == "__main__":
         print("WARNING: disable.rpi.nn.awb not found in tuning file - neural network AWB may already be enabled")
 
     with open(output, "w") as f:
-        if args.isp == "vc4":
+        if target == "vc4":
             custom_elems = {"table": 16, "luminance_lut": 16}
-        elif args.isp == "pisp":
+        elif target == "pisp":
             custom_elems = {"table": 32, "luminance_lut": 32}
         f.write(pretty_print(tuning, custom_elems=custom_elems))
 

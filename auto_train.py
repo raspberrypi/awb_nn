@@ -21,7 +21,7 @@ def train_and_get_errors(input_model, dataset, output_model, verification_file, 
                              '--batch-size', '8',
                              '--early-stopping',
                              '--duplicate-file', duplicate_file,
-                             '--epochs', '150']
+                             '--epochs', '200']
     if input_model is not None:
         args += ['--input-model', input_model]
     print("    Training...")
@@ -95,7 +95,7 @@ if __name__ == "__main__":
     parser.add_argument("--input-model", type=Path, help="Load a model to continue training", default=None)
     parser.add_argument("--duplicate-file", type=Path, help="File listing images to be included more than once", default="duplicates.txt")
     parser.add_argument("--iterations", type=int, help="Number of training iterations", default=50)
-    parser.add_argument("-w", "--weight", type=int, help="Number of extra times to include difficult images", default=4)
+    parser.add_argument("-w", "--weight", type=int, help="Number of extra times to include difficult images", default=8)
     parser.add_argument("--early-stopping", type=int, help="Stop after this many iterations with no improvement", default=10)
     parser.add_argument("--clear-duplicates", action="store_true", help="Clear duplicates file", default=False)
     parser.add_argument("-t", "--target", type=str, help="Target platform, either PISP or VC4", required=True)

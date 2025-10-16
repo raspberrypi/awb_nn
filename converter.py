@@ -319,6 +319,8 @@ def estimate_lux(rgb: np.ndarray, dng: CalibratedDng) -> float:
     colour_gains = 1 / dng.red_blue()[0], 1 / dng.red_blue()[1]
     Y = np.mean(rgb * np.array([0.299 * colour_gains[0], 0.587, 0.114 * colour_gains[1]]) * 3)
     lux = dng.tuning.calculate_lux(Y, dng.gain, dng.aperture, dng.shutter_speed)
+    # This lux estimate seems to be across the board some 5-10% lower than the hardware sees.
+    lux *= 1.05
     return lux
 
 def dng_to_rgb(dng: CalibratedDng, black_level: bool = True) -> np.ndarray:

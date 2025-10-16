@@ -84,11 +84,11 @@ where
 - `<dataset>` is the dataset to use for training. Be sure to use a dataset created for the chosen target platform.
 - `<output-dir>` is a folder where the results of each incremental training are written.
 - `--target` lists the target platform, either `vc4` or `pisp`, and which should match your dataset.
-- `--duplicate-file` names the file listing how many times particular images were re-used in training. The file format is the filename, followed by the count value. It should be sufficient just to list the start of the image name, consisting of the `<user>,<sensor>,<id>` part. The default filename is `duplicates.txt`.
+- `--duplicate-file` names the file listing how many times particular images are re-used in training. The file format is the filename, followed by the count value, one file per line. It should be sufficient just to list the start of the image name, consisting of the `<user>,<sensor>,<id>` part. The default filename is `duplicates.txt`.
 - `--clear-duplicates` instructs the script to clear the duplicates file when it starts, otherwise you can use your own duplicates file when you start the training process.
 - `--input-model` names a model as a starting point for incremental training. Otherwise, training starts from scratch.
 
-`auto_train.py` runs the training multiple times. Each run generates three output files - a "verification" file (listing every image and its associated error, sorted from worst to best), a "duplicates" file (listing the images repeated more than once in the training) and a "model" file (the Keras model at the end of the training run). These files are all named with the worst error, average error, and run sequence number in the filename, separated by underscores. For example, the file
+`auto_train.py` runs the training multiple times. Each run generates three output files - a "verification" file (listing images with their associated error, sorted from worst to best), a "duplicates" file (listing the images repeated more than once in the training) and a "model" file (the Keras model at the end of the training run). These files are all named with the worst error, average error, and run sequence number in the filename, separated by underscores. For example, the file
 ```
 model_12_2p6003_31.keras
 ```
@@ -107,6 +107,16 @@ will use the folder `pisp-dataset` for training, and write all the results to `p
 If you have your own images, you can annotate and convert them to a dataset as described above. You can train a network entirely on your own images, or you can add them to our datasets. As the performance on your own images may be particularly important, you may wish to create a duplicates file listing them (and avoid using the `--clear-duplicates` flag when you start training).
 
 You can train from scratch, or incrementally from a previous model (using the `--input-model` parameter).
+
+#### Training Tips
+
+Training is stochastic procedure so it's often helpful to run `auto_train.py` multiple times - perhaps overnight - and then assess which of the models produced is the best.
+
+You may find that `auto_train.py` can sometimes get stuck when the model has been trained into an area of the model's parameter space where it can no longer improve the worst case model. This problem can be mitigated by entering the problem image - on which it seems stuck - into the initial duplicates file (and obviously avoid the `--clear-duplicates` flag). As you repeat this procedure, you may find more images that need entering into your initial duplicates file, or you may need to increase the weight of images that are already listed.
+
+The aim is to reach a point where you can run `auto_train.py` multiple times and, with reasonably reliability, it will generate good output models.
+
+At the end of training, it's always important to test the models thoroughly on the target device, particularly as we currently have insufficient images to create a really large dataset with an effective training/validation split.
 
 ### Testing the model
 

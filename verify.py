@@ -23,7 +23,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--image", type=str, help="The image to test as a DNG file", required=True)
     parser.add_argument("--model", type=Path, help="The model to test. Must be a keras model.", required=True)
+    parser.add_argument("-t", "--target", type=str, help="The target platform. Use pisp for Pi 5, vc4 for other Pis", required=True, choices=["pisp", "PISP", "vc4", "VC4"])
     args = parser.parse_args()
+    target = args.target.lower()
 
     model = tf.keras.models.load_model(args.model, custom_objects={
         "MiredLoss": MiredLoss,
@@ -33,7 +35,7 @@ if __name__ == "__main__":
 
     filenames = [args.image]
     for filename in filenames:
-        dng = CalibratedDng(filename)
+        dng = CalibratedDng(filename, target)
         image = dng_to_rgb(dng)
         dng.do_lsc()
         lux = estimate_lux(image, dng)
@@ -47,18 +49,17 @@ if __name__ == "__main__":
 
         images = [
             raw_to_rgb(image, dng.tuning, real_temp, real_gains),
-            raw_to_rgb(image, dng.tuning, camera_temp, camera_gains),
             raw_to_rgb(image, dng.tuning, model_temp, model_gains),
         ]
 
         images = list(map(lambda img: apply_gamma(img, dng.tuning), images))
 
-        temps = [real_temp, camera_temp, model_temp]
-        gains = [real_gains, camera_gains, model_gains]
-        labels = ["Real", "Camera", "Model"]
+        temps = [real_temp, model_temp]
+        gains = [real_gains, model_gains]
+        labels = ["Real", "Model"]
 
         for i, image in enumerate(images):
-            plt.subplot(1, 3, i + 1)
+            plt.subplot(1, 2, i + 1)
             plt.imshow(image)
             plt.title(f"{labels[i]}: {temps[i]:.0f}K")
         plt.show()

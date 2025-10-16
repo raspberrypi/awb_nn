@@ -43,6 +43,9 @@ if __name__ == "__main__":
 
         model_temp = predict(image, model, lux)
         real_temp = int(real_temp)
+        # Model doesn't produce values outside 2800K to 7600K, so don't penalise it further than
+        # those values.
+        real_temp = min(max(real_temp, 2800), 7600)
         model_temp = int(model_temp)
         error_K = int(abs(model_temp - real_temp))
         error_mireds = int(abs(1000000 / model_temp - 1000000 / real_temp))
@@ -62,7 +65,7 @@ if __name__ == "__main__":
 
     for r in results:
         if r["error_mireds"] > 2:
-            output += f"{r["filename"]} : {r["model"]} should be {r["real"]}, error {r["error_mireds"]} ({r["error_percent"]})\n"
+            output += f"{r["filename"]} : {r["model"]} should be {r["real"]}, error {r["error_mireds"]} ({r["error_percent"]}%)\n"
         avg += r["error_mireds"]
 
     avg /= len(results)
