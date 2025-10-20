@@ -144,8 +144,8 @@ This will output a TFLite model which can be run on a Raspberry Pi.
 The neural network AWB is disabled by default.
 To use it, run
 ```bash
-python gen_tuning.py --sensor <sensor> --isp <isp> --model <model>
+python gen_tuning.py --sensor <sensor> --target <target> --model <model>
 ```
-Where `sensor` is the name of the camera's sensor (e.g. imx708) and `isp` is `pisp` on a Pi 5 and `vc4` on any other Pi. Run `python gen_tuning.py --help` to see all the options.
+Where `sensor` is the name of the camera's sensor (e.g. imx708) and `target` is `pisp` on a Pi 5 and `vc4` on any other Pi. Run `python gen_tuning.py --help` to see all the options.
 
 This will generate a new tuning file which can be used by rpicam-apps with the `--tuning-file` argument and in picamera2 with `Picamera2(tuning="<filename>.json")`
