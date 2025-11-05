@@ -65,11 +65,11 @@ if __name__ == "__main__":
 
     for r in results:
         if r["error_mireds"] > 2:
-            output += f"{r["filename"]} : {r["model"]} should be {r["real"]}, error {r["error_mireds"]} ({r["error_percent"]}%)\n"
+            output += f"{r['filename']} : {r['model']} should be {r['real']}, error {r['error_mireds']} ({r['error_percent']}%)\n"
         avg += r["error_mireds"]
 
     avg /= len(results)
-    output += f"Worst error: {results[0]["error_mireds"]}\n"
+    output += f"Worst error: {results[0]['error_mireds']}\n"
     output += f"Average error: {avg}\n"
     print(output, end="")
     if args.log:
